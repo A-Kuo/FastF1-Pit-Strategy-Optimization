@@ -1,6 +1,6 @@
 MIT License
 
-Copyright (c) 2024-2026 A-Kuo
+Copyright (c) 2026 A-Kuo
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -19,31 +19,3 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-
-================================================================================
-
-ADDITIONAL ATTRIBUTION
-
-This project uses the following open-source libraries:
-  - FastF1: https://github.com/theOehrly/Fast-F1 (GPLv3)
-  - scikit-learn: https://scikit-learn.org (BSD)
-  - XGBoost: https://xgboost.readthedocs.io (Apache 2.0)
-  - pandas: https://pandas.pydata.org (BSD)
-  - numpy: https://numpy.org (BSD)
-  - matplotlib: https://matplotlib.org (PSF)
-
-Data source (when using real F1 data):
-  - FastF1 aggregates official FIA/Formula 1 data
-  - Follow FIA/Formula 1 licensing terms for commercial use
-
-================================================================================
-
-DISCLAIMER
-
-This software is provided for educational and research purposes. The authors
-make no warranties about the accuracy or suitability for any particular use.
-
-Formula 1, FIA, and F1 are trademarks of Formula 1 World Championship Limited.
-This project is not affiliated with Formula 1, the FIA, or Liberty Media.
-
-================================================================================
