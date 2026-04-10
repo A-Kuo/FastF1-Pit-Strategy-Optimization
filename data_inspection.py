@@ -1,12 +1,12 @@
 """
-FastF1 Pit Strategy Data Inspection & Quality Assessment
-=========================================================
+FastF1 Pit Strategy: Data Inspection & Quality Assessment
+==========================================================
 
-Task 1-4: Load sample races, inspect schema, identify data quality issues,
-and summarize pit stop patterns.
+Loads sample races, inspects schema, identifies data quality issues,
+and summarizes pit stop patterns.
 
-NOTE: Using synthetic data matching FastF1 data structure (API unavailable).
-This demonstrates the exact analysis pipeline that runs on real FastF1 data.
+NOTE: Uses synthetic data matching the FastF1 data structure.
+This is the same analysis pipeline that runs on real FastF1 data.
 """
 
 import pandas as pd
@@ -128,11 +128,11 @@ def create_synthetic_race(race_name, race_date, num_drivers=20, num_laps=58):
 
 
 # ============================================================================
-# TASK 1: LOAD & INSPECT DATA STRUCTURE
+# SECTION 1: LOAD & INSPECT DATA STRUCTURE
 # ============================================================================
 
 print("=" * 80)
-print("TASK 1: LOAD & INSPECT DATA STRUCTURE")
+print("DATA STRUCTURE & SCHEMA INSPECTION")
 print("=" * 80)
 
 races_to_load = [
@@ -222,11 +222,11 @@ for col in available_columns:
         print(f"  • {col}: {column_explanations[col]}")
 
 # ============================================================================
-# TASK 2: IDENTIFY DATA QUALITY ISSUES
+# SECTION 2: DATA QUALITY ISSUES
 # ============================================================================
 
 print("\n" + "=" * 80)
-print("TASK 2: DATA QUALITY ISSUES")
+print("DATA QUALITY ISSUES")
 print("=" * 80)
 
 quality_summary = []
@@ -304,11 +304,11 @@ for race_name, race_data in race_sessions.items():
     })
 
 # ============================================================================
-# TASK 3: SUMMARIZE PIT STOP PATTERNS
+# SECTION 3: PIT STOP PATTERN ANALYSIS
 # ============================================================================
 
 print("\n" + "=" * 80)
-print("TASK 3: PIT STOP PATTERNS")
+print("PIT STOP PATTERN ANALYSIS")
 print("=" * 80)
 
 pit_summary = []
@@ -389,11 +389,11 @@ for race_name, race_data in race_sessions.items():
     })
 
 # ============================================================================
-# TASK 4: DOCUMENT DATA QUIRKS FOR CLEANING
+# SECTION 4: DATA QUIRKS & CLEANING REQUIREMENTS
 # ============================================================================
 
 print("\n" + "=" * 80)
-print("TASK 4: DATA QUIRKS & CLEANING REQUIREMENTS")
+print("DATA QUIRKS & CLEANING REQUIREMENTS")
 print("=" * 80)
 
 print("\n1. STANDING-START FIRST LAPS (Artificially Slow)")

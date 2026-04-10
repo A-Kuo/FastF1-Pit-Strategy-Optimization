@@ -2,14 +2,12 @@
 F1 Pit Strategy: Multi-Model Comparison & Evaluation
 =====================================================
 
-Task 1: Train 4 baseline models (Logistic Regression, Random Forest, XGBoost, Bi-LSTM)
-Task 2: Evaluate on 2024 held-out test set
-Task 3: Feature importance comparison
-Task 4: Error analysis
-Task 5: Threshold tuning
+Trains Logistic Regression, Random Forest, and XGBoost on 2018-2023
+synthetic race data, evaluates on a held-out 2024 test set, compares
+feature importance across models, analyzes prediction errors, and
+performs threshold tuning on the best model.
 
-Uses engineered features from feature_engineering.py
-Train on 2018-2023 (synthetic), test on 2024 (held-out)
+Uses engineered features from feature_engineering.py.
 """
 
 import pandas as pd
@@ -260,11 +258,11 @@ X_train_scaled = scaler.fit_transform(X_train)
 X_test_scaled = scaler.transform(X_test)
 
 # ============================================================================
-# TASK 1: TRAIN 4 BASELINE MODELS
+# SECTION 1: MODEL TRAINING (5-FOLD CROSS-VALIDATION)
 # ============================================================================
 
 print("\n" + "=" * 80)
-print("TASK 1: TRAIN 4 BASELINE MODELS (5-FOLD CROSS-VALIDATION)")
+print("MODEL TRAINING: 5-FOLD CROSS-VALIDATION")
 print("=" * 80)
 
 models = {}
@@ -364,11 +362,11 @@ print("\nD. Bi-LSTM (sequence model - requires specialized data reshaping)")
 print("   Skipping for this synthetic analysis (use with real sequential data)")
 
 # ============================================================================
-# TASK 2: EVALUATE ON 2024 TEST SET
+# SECTION 2: EVALUATION ON 2024 HELD-OUT TEST SET
 # ============================================================================
 
 print("\n" + "=" * 80)
-print("TASK 2: EVALUATE ON 2024 HELD-OUT TEST SET")
+print("EVALUATION: 2024 HELD-OUT TEST SET")
 print("=" * 80)
 
 results = []
@@ -430,11 +428,11 @@ print("=" * 80)
 print(results_df[['Model', 'Accuracy', 'Precision', 'Recall', 'F1', 'ROC-AUC', 'PR-AUC']].to_string(index=False))
 
 # ============================================================================
-# TASK 3: FEATURE IMPORTANCE COMPARISON
+# SECTION 3: FEATURE IMPORTANCE COMPARISON
 # ============================================================================
 
 print("\n" + "=" * 80)
-print("TASK 3: FEATURE IMPORTANCE COMPARISON")
+print("FEATURE IMPORTANCE COMPARISON")
 print("=" * 80)
 
 print("\nRandom Forest Top 10 Features:")
@@ -462,11 +460,11 @@ THE PRIMARY SIGNAL for pit timing across all model types.
 """)
 
 # ============================================================================
-# TASK 4: ERROR ANALYSIS
+# SECTION 4: ERROR ANALYSIS
 # ============================================================================
 
 print("\n" + "=" * 80)
-print("TASK 4: ERROR ANALYSIS (XGBoost)")
+print("ERROR ANALYSIS (XGBoost)")
 print("=" * 80)
 
 xgb_model = models['XGBoost']
@@ -514,11 +512,11 @@ print(f"False Positives by position: avg position {test_df[fp_mask]['Position'].
 print(f"False Negatives by position: avg position {test_df[fn_mask]['Position'].mean():.1f}")
 
 # ============================================================================
-# TASK 5: THRESHOLD TUNING
+# SECTION 5: THRESHOLD TUNING
 # ============================================================================
 
 print("\n" + "=" * 80)
-print("TASK 5: THRESHOLD TUNING (XGBoost)")
+print("THRESHOLD TUNING (XGBoost)")
 print("=" * 80)
 
 print("\nPrecision-Recall Trade-off at Different Thresholds:")

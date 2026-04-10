@@ -8,7 +8,7 @@ Data is production-ready for machine learning: zero missing values, balanced tar
 
 ---
 
-## TASK 1: Handle Missing Data Strategically
+## 1. Missing Data Handling
 
 ### 1A. IN/OUT Pit Laps with Missing LapTime
 
@@ -82,7 +82,7 @@ clean_data = raw_data[
 
 ---
 
-## TASK 2: Engineer Core Features
+## 2. Feature Engineering
 
 ### Feature Engineering Overview
 
@@ -467,7 +467,7 @@ Purpose: Allows retraining on caution data without recoding
 
 ---
 
-## TASK 3: Create Binary Classification Target
+## 3. Target Variable Construction
 
 ### Target Definition: pit_next_5_laps
 
@@ -519,7 +519,7 @@ Ratio: 1.72:1 (slightly imbalanced, but acceptable)
 
 ---
 
-## TASK 4: Specify Which Laps to Include/Exclude
+## 4. Data Inclusion Criteria
 
 ### Final Dataset Criteria
 

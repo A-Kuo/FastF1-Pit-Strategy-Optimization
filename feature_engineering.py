@@ -2,12 +2,11 @@
 F1 Pit Strategy: Data Cleaning & Feature Engineering
 =====================================================
 
-Task 1: Handle missing data strategically
-Task 2: Engineer core features for pit timing prediction
-Task 3: Create binary classification target
-Task 4: Specify laps to include/exclude
+Handles missing data, engineers features for pit timing prediction,
+constructs the binary classification target, and specifies which
+laps to include or exclude from the modeling dataset.
 
-Uses synthetic FastF1 data matching real API structure.
+Uses synthetic FastF1 data matching the real API structure.
 """
 
 import pandas as pd
@@ -109,11 +108,11 @@ def create_synthetic_race(race_name, race_date, num_drivers=20, num_laps=58):
 
 
 # ============================================================================
-# TASK 1: HANDLE MISSING DATA STRATEGICALLY
+# SECTION 1: HANDLE MISSING DATA
 # ============================================================================
 
 print("=" * 80)
-print("TASK 1: HANDLE MISSING DATA STRATEGICALLY")
+print("MISSING DATA HANDLING")
 print("=" * 80)
 
 # Generate sample races
@@ -208,11 +207,11 @@ TRADE-OFF:
 """)
 
 # ============================================================================
-# TASK 2: ENGINEER CORE FEATURES
+# SECTION 2: FEATURE ENGINEERING
 # ============================================================================
 
 print("\n" + "=" * 80)
-print("TASK 2: ENGINEER CORE FEATURES FOR PIT TIMING PREDICTION")
+print("FEATURE ENGINEERING: PIT TIMING PREDICTION")
 print("=" * 80)
 
 # First, create pit target on full data (before filtering)
@@ -388,11 +387,11 @@ print(f"\nD4. TrackStatusIsSC (0/1): Already filtered to 0 (cleaned)")
 clean_data['TrackStatusIsSC'] = 0
 
 # ============================================================================
-# TASK 3: CREATE BINARY CLASSIFICATION TARGET
+# SECTION 3: TARGET VARIABLE CONSTRUCTION
 # ============================================================================
 
 print("\n" + "=" * 80)
-print("TASK 3: CREATE BINARY CLASSIFICATION TARGET")
+print("TARGET VARIABLE: pit_next_5_laps")
 print("=" * 80)
 
 print("""
@@ -416,11 +415,11 @@ print(f"  pit_next_5_laps = 1 (do pit):    {pit_class_dist[1]} laps ({pit_class_
 print(f"  Balance: {pit_class_dist[1]/pit_class_dist[0]:.2f}:1 (reasonable—not extreme imbalance)")
 
 # ============================================================================
-# TASK 4: SPECIFY WHICH LAPS TO INCLUDE/EXCLUDE
+# SECTION 4: DATA INCLUSION CRITERIA
 # ============================================================================
 
 print("\n" + "=" * 80)
-print("TASK 4: SPECIFY LAPS TO INCLUDE/EXCLUDE")
+print("DATA INCLUSION CRITERIA")
 print("=" * 80)
 
 print("""
