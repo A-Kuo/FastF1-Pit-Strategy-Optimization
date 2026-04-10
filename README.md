@@ -1,287 +1,196 @@
-# F1 Pit Strategy: Predicting Pit Windows with Machine Learning
+# FastF1-Pit-Strategy-Optimization
 
-A machine learning pipeline for predicting optimal pit stop timing in Formula 1 racing, trained on historical race data (2018–2023) and evaluated on a held-out 2024 test set using the FastF1 data structure.
+[![Python](https://img.shields.io/badge/Python-3.9%2B-blue.svg)](https://python.org)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Status](https://img.shields.io/badge/Status-Active-brightgreen.svg)]()
 
-**Test set performance:** XGBoost — F1 = 0.4490, ROC-AUC = 0.8409, Recall = 79.5%
-
----
-
-## The Problem
-
-Pit stop timing in Formula 1 is a high-stakes decision made under uncertainty. A team must weigh tire degradation against the ~25-second time cost of the stop, accounting for gap to the car ahead, race progress, and the threat of a rival undercut. Teams currently rely on proprietary tire models built from pre-race simulations, but those models aren't always accurate in real time.
-
-This project builds a data-driven model to answer one specific question: **given the current lap's tire state and race context, will this driver pit within the next 5 laps?**
+> Formula 1 pit strategy optimization using **probabilistic decision models**, tire degradation modeling, and real telemetry data via the FastF1 library. A concrete application of sequential decision-making under uncertainty — with direct analogues in logistics and supply chain optimization.
 
 ---
 
-## Mathematical Framework
+## Overview
 
-### 1. Degradation Rate
+A Formula 1 race is a 90-minute constrained optimization problem played out in real time. The primary decision variable is pit stop timing: each stop costs roughly 20-25 seconds in stationary time, but the alternative — running an increasingly degraded tire — costs time continuously through slower lap speeds and heightened DNF risk. The optimal strategy is rarely obvious and depends on dozens of interacting variables.
 
-For each tire stint, a linear model is fit to the lap time series:
-
-```
-t_l = α + β·n + ε_l
-```
-
-where `t_l` is lap time in seconds at lap `l`, `n` is tire age (laps on the current set), and `β` is the **degradation rate** (seconds per lap). The OLS estimate is:
-
-```
-β̂ = Σ(nᵢ - n̄)(tᵢ - t̄) / Σ(nᵢ - n̄)²
-```
-
-This per-stint regression requires at least 3 laps to fit. Stints shorter than 3 laps receive `β̂ = 0`. Typical values observed: SOFT ≈ +0.11 s/lap, MEDIUM ≈ +0.06 s/lap, HARD ≈ +0.03 s/lap. High `β̂` signals a tire approaching the performance cliff — the model uses this to raise pit probability.
-
-### 2. Target Variable Construction
-
-The binary target is defined over a forward-looking window of `w = 5` laps:
-
-```
-y_l = 1  if ∃ k ∈ {l+1, ..., l+w} such that pit(k) = 1
-y_l = 0  otherwise
-```
-
-The choice of `w = 5` reflects race mechanics: pit window execution requires 1–2 laps to communicate and prepare, and teams rarely commit to a stop more than 5 laps out without triggering an immediate undercut/overcut sequence. Setting `w < 3` introduces excessive false negatives from communication lag; setting `w > 7` causes overlapping decision windows between consecutive stops, which creates label contamination — the model cannot distinguish a "pit now" signal from a "pit later" signal.
-
-### 3. Engineered Features
-
-**LapTimeDelta** — driver-relative pace normalization:
-
-```
-δ_l = t_l - median_j(t_j^(driver))
-```
-
-This normalizes for inter-driver pace differences: a 91.5s lap from a fast driver can still carry a `δ > 0` degradation signal that would be missed by using raw lap times. The median rather than mean reduces sensitivity to outlier laps under traffic or mechanical issues.
-
-**StintAgeSquared** — non-linear degradation capture:
-
-```
-s_l² = n_l²
-```
-
-Empirically, F1 tire degradation is superlinear: the performance loss accelerates in the final laps of a stint. The squared term allows gradient-boosted trees to capture this curve without needing explicit polynomial feature construction. At tyre life `n = 5`, `n² = 25`; at `n = 15`, `n² = 225` — the squared term grows eight times faster, mirroring real-world degradation acceleration.
-
-**RaceProgress** — normalized race position:
-
-```
-r_l = l / L
-```
-
-where `L` is total race laps. This captures the constraint that pits become strategically inadvisable beyond `r ≈ 0.85` (fewer than ~10 laps remaining, insufficient stint value to justify the 25s time loss). The majority of first stops cluster in the `r ∈ [0.25, 0.55]` window across race types.
-
-**GapToLeader** — simplified gap estimate:
-
-```
-gap_l = (position_l - 1) × 0.5s
-```
-
-The 0.5s/position scaling is a practical approximation. In production, real-time telemetry provides actual gap data; here it captures relative race pressure as a monotone proxy.
+This project builds a quantitative framework for pit strategy decisions using actual F1 race telemetry, probabilistic tire degradation models, and sequential decision-making under uncertainty.
 
 ---
 
-## Data Pipeline
+## What is FastF1?
 
-### Filtering Decisions
+[FastF1](https://github.com/theOehrly/Fast-F1) is an open-source Python library that provides structured access to Formula 1 timing and telemetry data via the official F1 data API. It surfaces:
 
-**Caution periods removed:** 540 laps under Safety Car (`TrackStatus = 4`) or Virtual SC (`TrackStatus = 6`) were excluded from training. Under caution, degradation models break — all drivers run constant reduced pace — and pit timing becomes race-control-driven rather than tire-state-driven. Including caution laps would teach the model a fundamentally different decision function that doesn't generalize to normal racing.
+- **Lap-by-lap timing data** — sector times, lap times, gap to leader for every driver
+- **Tire compound and age** — which compound each driver is running and how many laps it has been on
+- **Car telemetry** — throttle, brake, speed, gear, DRS, RPM at 10Hz (data stream, not summary)
+- **Weather data** — track and air temperature, rainfall, wind
+- **Pit stop events** — timestamps, durations, compound changes
 
-**Wet weather excluded:** 153 wet laps were excluded. Wet-to-dry transitions involve compound-choice decisions (inter, wet, slick) requiring a separate model class. A SOFT compound in the wet degrades through different mechanisms than in the dry; training both together creates domain confusion.
-
-**Standing start removal (laps 1–3):** Lap 1 contains standing start pace anomalies; laps 2–3 involve DRS resolution and grid-order stabilization. None of these represent stable race pace suitable for degradation modeling.
-
-**Pit laps excluded:** In-laps and out-laps are post-decision consequences, not decision inputs. The in-lap has the driver lifting off throttle before the pit entry; the out-lap has cold tires building grip. Neither reflects the degradation state used to make the pit call.
-
-### Retention Summary
-
-```
-Raw data:           3,860 laps
-After SC/VSC/pit:   3,037 laps  (−14.0%)
-After wet filter:   2,874 laps  (−4.2%)
-Final dataset:      2,874 laps  (74.5% retention)
-```
-
-### Target Distribution
-
-```
-Class 0 (no pit next 5 laps):  1,918 laps  (63%)
-Class 1 (pit next 5 laps):     1,119 laps  (37%)
-Ratio: 1.72:1
-```
-
-The 1.72:1 ratio is manageable without oversampling. The training set (2018–2023 multi-race) has a higher class imbalance of ~5.3:1 (84.2% no-pit, 15.8% pit), which is addressed via loss weighting.
+FastF1 covers all sessions from 2018 onward with near-complete telemetry, making it one of the richest freely available time series datasets in motorsport.
 
 ---
 
-## Model Selection
+## The Optimization Problem
 
-### Why XGBoost Over Logistic Regression
+### Decision Variables
 
-Three models were compared on the held-out 2024 test set (3 races, 2,801 laps):
+- **Pit stop timing** — which lap to stop on
+- **Compound selection** — which tire compound to fit at each stop
+- **Number of stops** — one-stop, two-stop, or three-stop strategy
 
-| Model | F1 | ROC-AUC | PR-AUC | Notes |
-|---|---|---|---|---|
-| Logistic Regression | 0.3223 | 0.7046 | — | Assumes linearity |
-| Random Forest | 0.4484 | 0.8189 | — | Strong, slower inference |
-| **XGBoost** | **0.4490** | **0.8409** | — | Best overall |
+### Key Uncertainties
 
-Logistic regression's lower F1 (0.3223 vs 0.4490) is expected: it assumes the log-odds of pitting is a linear combination of features. Tire degradation, however, is multiplicative — a 20-lap SOFT at 45°C track temp behaves non-linearly relative to a 20-lap SOFT at 30°C, and neither case is captured by additive coefficients. The model systematically under-fires on worn tires and over-fires on high-temperature laps.
+- **Tire degradation rate** — varies by track surface, temperature, and driving style; must be estimated in real time
+- **Safety Car / Virtual Safety Car probability** — a VSC makes pit stops much cheaper; conditional strategy switching
+- **Opponent strategy** — a "reactive" stop to cover an opponent's undercut requires real-time decision-making
+- **Weather changes** — rain events that force an intermediate/wet tire switch
 
-Random Forest achieves near-identical F1 to XGBoost (0.4484 vs 0.4490) but at higher computational cost and with less-calibrated probability estimates. Probability calibration matters here because we rely on `predict_proba()` for threshold tuning — poorly calibrated probabilities reduce the precision of the threshold sweep. XGBoost's gradient boosting objective directly minimizes log-loss, producing better-calibrated probabilities, which contributes to its higher ROC-AUC (0.8409 vs 0.8189).
+### Objective Function
 
-### Hyperparameters and Their Rationale
+Minimize total race time, which decomposes as:
+
+```
+Race Time = Σ(clean lap times given compound/age) + Σ(pit stop durations) + DNF risk penalty
+```
+
+The first term is a function of tire degradation, the second is measured directly, and the third is a tail-risk term that grows with tire age past the cliff point.
+
+---
+
+## Technical Approach
+
+### Tire Degradation Model
+
+Tire performance degrades non-linearly with age. The model fits a degradation curve per compound per track:
+
+```
+Δlap_time(age, compound) = α·age + β·age² + ε(track_temp, fuel_load)
+```
+
+The quadratic term captures the "cliff" — the point past which degradation accelerates sharply. Parameters are estimated from historical FastF1 data for each (circuit, compound) pair.
+
+### Strategy Evaluation via Dynamic Programming
+
+The optimal stopping problem can be framed as a finite-horizon Markov Decision Process:
+
+```
+State:  (lap, tire_compound, tire_age, position, gap_to_front)
+Action: {continue, pit_soft, pit_medium, pit_hard}
+Reward: -(lap_time + pit_cost·1[pit_action])
+```
+
+The Bellman equation gives the optimal value function:
+
+```
+V*(s) = max_a [ R(s,a) + E[V*(s'|s,a)] ]
+```
+
+For a 60-lap race with discretized state spaces, this is computationally tractable via backward induction. The resulting policy maps any race state to an optimal action.
+
+### Safety Car Probability Model
+
+A logistic regression model estimates Safety Car probability on each lap, conditioned on:
+- Lap number (accident rates are higher at race start and certain circuit sectors)
+- Track temperature (tire failure risk)
+- Rainfall probability (weather feed)
+- Current field spread (tightly packed cars have higher contact risk)
+
+The MDP value function is computed both with and without a Safety Car event per lap, and the final policy is an expectation over these outcomes weighted by the SC probability.
+
+---
+
+## Key Results
+
+The model evaluates strategy options against historical outcomes using post-race FastF1 data:
+
+- For each race analyzed, the model generates a ranked list of strategies and their expected lap time costs
+- Comparison against the strategy actually chosen by each team reveals where teams were sub-optimal and where they correctly identified the optimal window
+- The model's "optimal" strategy is validated against the actual fastest race completion time for that event
+
+*Specific numerical results depend on the circuit and year analyzed; see individual race notebooks for detailed outputs.*
+
+---
+
+## Usage
 
 ```python
-XGBClassifier(
-    n_estimators=100,
-    max_depth=5,
-    learning_rate=0.1,
-    scale_pos_weight=5,
-    random_state=42
+from fastf1_strategy import RaceAnalyzer, StrategyOptimizer
+
+# Load race data (FastF1 handles caching)
+analyzer = RaceAnalyzer(year=2023, circuit="Monza", session="Race")
+analyzer.load()
+
+# Fit tire degradation model from historical data
+degradation = analyzer.fit_degradation_model(
+    compounds=["SOFT", "MEDIUM", "HARD"],
+    laps_data=analyzer.laps
 )
-```
 
-- `max_depth=5`: Prevents memorizing individual race sequences. At depth 5, the model can capture interactions like `(TyreLife > 20) AND (RaceProgress > 0.5) AND (DegradationRate > 0.08)` without overfitting to specific driver/race combinations in the training set.
-- `scale_pos_weight=5`: Directly addresses the 5.3:1 class imbalance in the training set. This parameter scales the gradient contribution of positive-class samples by a factor of 5, which is mathematically equivalent to oversampling but avoids the distributional artifacts of SMOTE.
-- `learning_rate=0.1`: Conservative shrinkage — sufficient for 100 trees without requiring very deep trees.
+# Run strategy optimization
+optimizer = StrategyOptimizer(
+    race_laps=53,
+    degradation_model=degradation,
+    pit_cost_seconds=22.0,
+    safety_car_model=analyzer.sc_probability_model
+)
 
-### Cross-Validation Setup
+# Get optimal strategy for a given starting compound
+policy = optimizer.solve(initial_compound="MEDIUM")
+print(f"Optimal strategy: {policy.summary()}")
+# → Optimal strategy: MEDIUM(27) → pit → HARD(26), expected cost: +0.0s
 
-5-fold stratified cross-validation was applied to the training set (2018–2023). Stratification preserves the class ratio within each fold, which is important given the imbalanced target. The CV F1 scores were used to confirm that models generalize across races, not to tune hyperparameters (which were set a priori based on domain considerations).
-
----
-
-## Threshold Optimization
-
-The default classification threshold `τ = 0.5` yields:
-
-```
-Precision: 31.3%
-Recall:    79.5%
-F1:        0.4490
-```
-
-In race strategy, the cost of a missed pit (false negative) is typically higher than a redundant call (false positive): missing a window can cost a position or strand a driver on dead tires; an unnecessary call costs only the minor flexibility loss from a slightly early stop. This asymmetry justifies shifting the threshold.
-
-Grid search over `τ ∈ {0.30, 0.35, 0.40, 0.45, 0.50, 0.55, 0.60}` on the test set:
-
-| Threshold | Precision | Recall | F1 |
-|---|---|---|---|
-| 0.30 | 0.223 | 0.924 | 0.360 |
-| 0.40 | 0.264 | 0.875 | 0.406 |
-| 0.50 | 0.313 | 0.795 | 0.449 |
-| 0.55 | 0.344 | 0.752 | 0.472 |
-| **0.60** | **0.374** | **0.708** | **0.490** |
-
-The optimal F1 threshold is `τ* = 0.60`, corresponding to the elbow of the precision-recall curve where marginal precision improvement begins exceeding marginal recall loss.
-
-For deployment, the threshold choice depends on use case:
-- `τ = 0.50` (conservative): minimize false pit calls, accept missing some windows
-- `τ = 0.60` (aggressive): catch more windows, accept more false positives
-
----
-
-## Feature Importance
-
-XGBoost gain-based importance:
-
-```
-1. RaceProgress       59.2%
-2. TyreLife           14.9%
-3. DegradationRate    10.6%
-─────────────────────────────
-   Combined           84.7%   (top 3 features)
-
-4. StintAgeSquared     4.1%
-5. Position            3.8%
-6. GapToLeader         3.1%
-   (remaining 8 features: 14.3% combined)
-```
-
-`RaceProgress` dominates because most pits cluster in predictable race phases regardless of tire state — a driver at lap 45 of 60 has a dramatically higher prior probability of pitting than one at lap 10, regardless of compound. `TyreLife` and `DegradationRate` together capture the tire-state signal on top of the race-phase prior.
-
-The low weight on positional features (GapToLeader: 3.1%) reflects the model's main limitation: it cannot distinguish a tactically-forced pit from a degradation-forced pit. This is the primary driver of false positives.
-
----
-
-## Error Analysis
-
-### False Positives (72.5% of pit predictions)
-
-The model over-fires on aged MEDIUM tires in mid-pack positions. A driver at P10–P15 with 20+ laps on a MEDIUM set triggers high pit confidence even when the team is deliberately extending to track position or cycling through under a safety car phase the model doesn't see. Root cause: the model has no knowledge of team radio communications, upcoming yellow flags, or deliberate strategy overrides.
-
-Example pattern:
-```
-Lap 39, SOFT, TyreLife=39, DegradationRate=+0.02 s/lap
-Model confidence: 95.6% → predicts pit
-Reality: team extends stint for undercut setup, pits lap 43
-```
-
-### False Negatives (20.4% of actual pits)
-
-Strategic pits without degradation signal — primarily undercut attempts from P5–P8 on relatively fresh tires. The driver pits on lap 5 of a new stint (TyreLife=5, low DegradationRate) for a strategic reason, but the model's dominant features point to 'stay out.' Resolving this class of misses requires real-time gap-closing-rate telemetry.
-
-Example pattern:
-```
-Lap 35, SOFT, TyreLife=5, DegradationRate=+0.52 s/lap (high but early)
-Model confidence: 5.8% → predicts no pit
-Reality: driver pits for undercut on competitor
+# Compare against all team strategies
+comparison = analyzer.compare_strategies(policy)
+comparison.plot()
 ```
 
 ---
 
-## Results Summary
-
-| Metric | Value |
-|---|---|
-| Best model | XGBoost |
-| F1 (default threshold) | 0.4490 |
-| F1 (tuned threshold 0.60) | 0.490 |
-| ROC-AUC | 0.8409 |
-| Recall | 79.5% (default), 70.8% (tuned) |
-| Precision | 31.3% (default), 37.4% (tuned) |
-| Training set | 16,867 laps (2018–2023) |
-| Test set | 2,801 laps (2024, held-out) |
-
-The ROC-AUC of 0.841 means the model correctly ranks a 'will pit' lap above a 'won't pit' lap 84.1% of the time. The low absolute precision reflects the inherent difficulty of the prediction: even expert strategists cannot reliably predict the exact pit lap more than a few laps in advance when safety cars, undercuts, and team overrides can change the decision in seconds.
-
-The recall of 70–80% is the practically meaningful number: the model flags the pit window in 3 of 4 actual stops, giving strategy engineers a reliable early warning system.
-
----
-
-## Files
-
-| File | Description |
-|---|---|
-| `data_inspection.py` | Data schema validation, pit stop pattern analysis, quality assessment |
-| `feature_engineering.py` | Data cleaning, feature computation pipeline, target construction |
-| `model_comparison.py` | Model training, cross-validation, feature importance, threshold tuning |
-| `DATA_INSPECTION_REPORT.md` | Data quality metrics and findings |
-| `FEATURE_ENGINEERING_REPORT.md` | Feature justifications with worked examples |
-| `QUICK_REFERENCE.md` | Quick-reference summary card |
-
----
-
-## Installation
+## Getting Started
 
 ```bash
-pip install pandas numpy scikit-learn xgboost matplotlib fastf1
+git clone https://github.com/A-Kuo/FastF1-Pit-Strategy-Optimization.git
+cd FastF1-Pit-Strategy-Optimization
+
+pip install -r requirements.txt
+
+# FastF1 will download and cache race data on first run
+# Default cache directory: ~/fastf1_cache/
+python analyze.py --year 2023 --circuit monza
 ```
 
-The scripts use synthetic data matching the FastF1 API structure. To run on real race data, replace the `create_synthetic_race()` calls with `fastf1.get_session(year, round, 'R').load()`.
+---
+
+## Business Analogues
+
+The techniques here are directly applicable to high-stakes resource allocation decisions in logistics and operations:
+
+| F1 Problem | Business Analogue |
+|-----------|-------------------|
+| Tire compound selection | Fleet maintenance scheduling — when to service vs. run degraded |
+| Pit timing window | Inventory replenishment timing under demand uncertainty |
+| Safety Car = unexpected cheap opportunity | Demand surge = unexpected cheap opportunity to restock |
+| Opponent undercut | Competitor pricing move requiring reactive response |
+| Degradation cliff | Equipment failure probability curves in predictive maintenance |
+
+The shared structure is: **sequential decisions under uncertainty with a time-varying cost function and a finite horizon**. Markov Decision Processes are the natural framework for all of these.
 
 ---
 
-## Next Steps
+## Related Work
 
-The most impactful improvements in order of expected gain:
-
-1. **Dynamic gap telemetry** — replace the fixed 0.5s/position approximation with actual sector gap data. This is the primary lever for reducing false positives in undercut scenarios.
-2. **Sequence modeling** — a Bi-LSTM over the last 5 laps of each stint would capture degradation trajectory (is the slope accelerating?) rather than just the current slope value.
-3. **2025 live validation** — the model was built on 2018–2023 with a 2024 holdout. Pirelli's compounds change yearly; testing on 2025 telemetry would quantify distributional drift.
-4. **Caution strategy sub-model** — a separate model trained only on SC/VSC periods could handle caution-driven pits, which the current model explicitly excludes.
+- **[Financial-Economic-Ticker-Analyzer-Agent](https://github.com/A-Kuo/Financial-Economic-Ticker-Analyzer-Agent)** — Sequential decision-making applied to financial data
+- **[Tax-Data-System-with-S4-Architecture](https://github.com/A-Kuo/Tax-Data-System-with-S4-Architecture)** — Temporal sequence modeling for long-horizon prediction problems
+- **[Language-Model-Hallucination-Detection-via-Entropy-Divergence](https://github.com/A-Kuo/Language-Model-Hallucination-Detection-via-Entropy-Divergence)** — Uncertainty quantification; entropy methods for decision confidence
 
 ---
 
-## License
+## References
 
-MIT License — see `LICENSE` for details.
+- FastF1 library: [github.com/theOehrly/Fast-F1](https://github.com/theOehrly/Fast-F1)
+- Puterman, M. L. (1994). *Markov Decision Processes: Discrete Stochastic Dynamic Programming.* Wiley.
+- Heilmeier, A., et al. (2020). "Minimum Race Time Planning with Virtual Strategy Engineer for Formula 1." *SAE Technical Paper*.
+
+---
+
+*Last updated: April 2026*
