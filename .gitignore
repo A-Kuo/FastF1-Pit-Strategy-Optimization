@@ -64,3 +64,8 @@ config.ini
 *.csv
 *.parquet
 *.h5
+
+# Docker/testing artifacts
+docker-compose.log
+docker-compose.pid
+*.pid
