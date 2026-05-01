@@ -15,7 +15,8 @@ Setup:
     3. config.py automatically loads from .env in the working directory
 """
 
-from pydantic import BaseSettings, Field
+from pydantic_settings import BaseSettings
+from pydantic import Field, ConfigDict
 from typing import Literal
 import logging
 
@@ -78,10 +79,12 @@ class Settings(BaseSettings):
     # Streamlit Configuration
     streamlit_port: int = Field(
         default=8501,
+        alias="streamlit_server_port",
         description="Streamlit server port"
     )
     streamlit_address: str = Field(
         default="0.0.0.0",
+        alias="streamlit_server_address",
         description="Streamlit server address"
     )
     streamlit_logger_level: str = Field(
@@ -109,11 +112,13 @@ class Settings(BaseSettings):
         description="Log format (text for development, json for production)"
     )
 
-    class Config:
-        """Pydantic configuration"""
-        env_file = ".env"
-        case_sensitive = False
-        env_file_encoding = "utf-8"
+    model_config = ConfigDict(
+        env_file=".env",
+        case_sensitive=False,
+        env_file_encoding="utf-8",
+        extra="ignore",
+        populate_by_name=True
+    )
 
     def get_db_url(self) -> str:
         """
