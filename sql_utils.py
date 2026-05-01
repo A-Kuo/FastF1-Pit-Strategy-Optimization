@@ -6,6 +6,22 @@ Provides SQLAlchemy ORM models and utility functions for:
 - PostgreSQL, MySQL, SQL Server support
 - Model predictions audit trail
 - Reproducibility and data lineage
+
+Usage:
+    from sql_utils import SQLConnector
+
+    # Option 1: Use environment variables from .env
+    from config import settings
+    connector = SQLConnector.from_settings(settings)
+
+    # Option 2: Explicit parameters
+    connector = SQLConnector(
+        db_type='postgresql',
+        user='postgres',
+        password='secret',
+        host='localhost',
+        database='f1_pit_db'
+    )
 """
 
 from sqlalchemy import create_engine, Column, Integer, Float, String, Boolean, DateTime, ForeignKey
@@ -13,6 +29,9 @@ from sqlalchemy.orm import declarative_base, Session
 from datetime import datetime
 import pandas as pd
 from typing import Optional
+import logging
+
+logger = logging.getLogger(__name__)
 
 Base = declarative_base()
 
@@ -150,9 +169,44 @@ class SQLConnector:
         Args:
             db_type: 'postgresql', 'mysql', or 'sqlserver'
             **kwargs: Connection parameters (user, password, host, database, etc.)
+
+        Example:
+            connector = SQLConnector(
+                'postgresql',
+                user='postgres',
+                password='secret',
+                host='localhost',
+                database='f1_pit_db'
+            )
         """
         self.db_type = db_type
         self.engine = self._create_engine(db_type, **kwargs)
+        logger.info(f"✓ Database connector initialized ({db_type})")
+
+    @classmethod
+    def from_settings(cls, settings):
+        """
+        Create SQLConnector from config.Settings object.
+
+        Args:
+            settings: config.Settings instance
+
+        Returns:
+            SQLConnector: Configured connector
+
+        Example:
+            from config import settings
+            connector = SQLConnector.from_settings(settings)
+        """
+        logger.info(f"Creating connector from settings ({settings.db_type})")
+        return cls(
+            db_type=settings.db_type,
+            user=settings.db_user,
+            password=settings.db_password,
+            host=settings.db_host,
+            port=settings.db_port,
+            database=settings.db_name,
+        )
 
     def _create_engine(self, db_type: str, **kwargs):
         """Create SQLAlchemy engine for specified database type"""
@@ -189,7 +243,7 @@ class SQLConnector:
     def init_db(self):
         """Create all tables"""
         Base.metadata.create_all(self.engine)
-        print(f"✓ Database initialized ({self.db_type})")
+        logger.info(f"Database initialized ({self.db_type})")
 
     def get_session(self):
         """Get new database session"""
@@ -224,7 +278,7 @@ class SQLConnector:
                 )
                 session.add(lap)
             session.commit()
-            print(f"✓ Inserted {len(df)} laps for race {race_id}")
+            logger.info(f"Inserted {len(df)} laps for race {race_id}")
         finally:
             session.close()
 
@@ -244,7 +298,7 @@ class SQLConnector:
                 )
                 session.add(pred)
             session.commit()
-            print(f"✓ Inserted {len(predictions_df)} predictions")
+            logger.info(f"Inserted {len(predictions_df)} predictions")
         finally:
             session.close()
 
@@ -279,7 +333,7 @@ class SQLConnector:
             metrics = ModelMetricsORM(**metrics_dict)
             session.add(metrics)
             session.commit()
-            print(f"✓ Inserted metrics for {metrics_dict['model_name']}")
+            logger.info(f"Inserted metrics for {metrics_dict['model_name']}")
         finally:
             session.close()
 
