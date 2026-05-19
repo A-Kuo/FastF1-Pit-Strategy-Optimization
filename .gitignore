@@ -59,11 +59,15 @@ htmlcov/
 *secret*
 config.ini
 
-# Large files
+# Large files (model artifacts tracked via models/ exception below)
 *.pkl
 *.csv
 *.parquet
 *.h5
+
+# Track trained model artifacts
+!models/*.pkl
+!models/*.npy
 
 # Docker/testing artifacts
 docker-compose.log

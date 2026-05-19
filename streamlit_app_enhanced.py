@@ -112,53 +112,52 @@ st.markdown(f"""
 
 @st.cache_resource
 def load_models_and_metrics():
-    """Load trained models and compute comprehensive metrics."""
-    with open('models/random_forest.pkl', 'rb') as f:
-        rf_model = pickle.load(f)
-    with open('models/xgboost.pkl', 'rb') as f:
+    """Load trained XGBoost model and metrics from pipeline.py output."""
+    with open('models/xgboost_model.pkl', 'rb') as f:
         xgb_model = pickle.load(f)
-    with open('models/logistic_regression.pkl', 'rb') as f:
-        lr_model = pickle.load(f)
     with open('models/scaler.pkl', 'rb') as f:
         scaler = pickle.load(f)
+    with open('models/metrics.pkl', 'rb') as f:
+        saved_metrics = pickle.load(f)
 
-    # Load test data
     X_test_scaled = np.load('models/X_test_scaled.npy')
     y_test = np.load('models/y_test.npy')
 
-    results_df = pd.read_csv('results/model_comparison.csv')
+    xgb_proba = xgb_model.predict_proba(X_test_scaled)[:, 1]
+    threshold  = saved_metrics.get('threshold', 0.60)
+    xgb_pred   = (xgb_proba >= threshold).astype(int)
 
-    # Compute additional metrics
-    models = {
-        'Logistic Regression': lr_model,
-        'Random Forest': rf_model,
-        'XGBoost': xgb_model
+    metrics = {
+        'XGBoost': {
+            'MAE':    mean_absolute_error(y_test, xgb_proba),
+            'RMSE':   np.sqrt(mean_squared_error(y_test, xgb_proba)),
+            'R2':     r2_score(y_test, xgb_pred),
+            'y_proba': xgb_proba,
+            'y_pred':  xgb_pred,
+        }
     }
 
-    metrics = {}
-    for model_name, model in models.items():
-        y_proba = model.predict_proba(X_test_scaled)[:, 1]
-        y_pred = (y_proba >= 0.5).astype(int)
-
-        mae = mean_absolute_error(y_test, y_proba)
-        rmse = np.sqrt(mean_squared_error(y_test, y_proba))
-        r2 = r2_score(y_test, y_pred)
-
-        metrics[model_name] = {
-            'MAE': mae,
-            'RMSE': rmse,
-            'R2': r2,
-            'y_proba': y_proba,
-            'y_pred': y_pred
-        }
+    # Build results_df compatible with existing tab_model_diagnostics structure
+    results_df = pd.DataFrame([{
+        'Model': 'XGBoost',
+        'ROC_AUC': saved_metrics['roc_auc'],
+        'F1':      saved_metrics['f1'],
+        'Recall':  saved_metrics['recall'],
+        'Precision': saved_metrics['precision'],
+        'Train_Size': saved_metrics['train_size'],
+        'Test_Size':  saved_metrics['test_size'],
+    }])
 
     return {
-        'models': models,
+        'models': {'XGBoost': xgb_model},
+        'xgb_model': xgb_model,
         'scaler': scaler,
         'results': results_df,
         'metrics': metrics,
+        'saved_metrics': saved_metrics,
         'X_test': X_test_scaled,
-        'y_test': y_test
+        'y_test': y_test,
+        'threshold': threshold,
     }
 
 try:
@@ -167,8 +166,10 @@ try:
     scaler = data['scaler']
     results_df = data['results']
     metrics = data['metrics']
+    saved_metrics = data['saved_metrics']
     X_test_scaled = data['X_test']
     y_test = data['y_test']
+    THRESHOLD = data['threshold']
 except Exception as e:
     st.error(f"Error loading models: {str(e)}")
     st.stop()
@@ -178,27 +179,21 @@ except Exception as e:
 # ============================================================================
 
 FEATURE_COLS = [
-    'TyreLife', 'LapTimeDelta', 'DegradationRate', 'StintAgeSquared',
-    'RaceProgress', 'Position', 'GapToLeader', 'GapToCarInFront',
-    'PitDeltaEstimated', 'StopsCompleted', 'StopsRemaining', 'PitStrategyID',
-    'AirTemp', 'TrackTemp'
+    'DegradationRate', 'StintAgeSquared', 'RaceProgress', 'PaceDelta'
 ]
 
 FEATURE_RANGES = {
-    'TyreLife': (0, 67),
-    'LapTimeDelta': (-10, 10),
-    'DegradationRate': (0, 0.1),
-    'StintAgeSquared': (0, 4500),
-    'RaceProgress': (0.0, 1.0),
-    'Position': (1, 20),
-    'GapToLeader': (0, 9.5),
-    'GapToCarInFront': (0, 5),
-    'PitDeltaEstimated': (20, 30),
-    'StopsCompleted': (0, 3),
-    'StopsRemaining': (0, 3),
-    'PitStrategyID': (1, 3),
-    'AirTemp': (10, 30),
-    'TrackTemp': (25, 55)
+    'DegradationRate':  (-0.05, 0.20),   # OLS slope, seconds per lap per lap
+    'StintAgeSquared':  (0, 3600),        # tyre_life² (max ~60²)
+    'RaceProgress':     (0.0, 1.0),       # normalized race position
+    'PaceDelta':        (-3.0, 3.0),      # driver lap time vs. rolling 5-lap median (s)
+}
+
+FEATURE_DESCRIPTIONS = {
+    'DegradationRate':  'OLS slope of lap time vs. stint age (s/lap)',
+    'StintAgeSquared':  'Tyre age squared — non-linear degradation proxy (laps²)',
+    'RaceProgress':     'Current lap / total laps (0 = start, 1 = finish)',
+    'PaceDelta':        'Lap time minus driver 5-lap rolling median (seconds)',
 }
 
 # ============================================================================
@@ -216,13 +211,14 @@ def tab_race_analyzer():
         col = col1 if i % 2 == 0 else col2
         min_val, max_val = FEATURE_RANGES[feature]
         default_val = (min_val + max_val) / 2
-
+        desc = FEATURE_DESCRIPTIONS.get(feature, "")
         feature_inputs[feature] = col.slider(
             f"**{feature}**",
             min_value=float(min_val),
             max_value=float(max_val),
             value=float(default_val),
-            step=0.1
+            step=0.01,
+            help=desc,
         )
 
     # Make prediction
@@ -230,57 +226,37 @@ def tab_race_analyzer():
     X_scaled = scaler.transform(X_input)
 
     st.markdown("---")
-    st.markdown('<div class="f1-header">🎯 Pit Decision</div>', unsafe_allow_html=True)
+    st.markdown('<div class="f1-header">🎯 Pit Decision — XGBoost</div>', unsafe_allow_html=True)
 
-    pred_cols = st.columns(3)
-    selected_model = st.radio(
-        "**SELECT MODEL**",
-        list(models.keys()),
-        horizontal=True,
-        label_visibility="collapsed"
-    )
+    xgb_model = models['XGBoost']
+    proba = xgb_model.predict_proba(X_scaled)[0, 1]
+    threshold = THRESHOLD
 
-    pit_probabilities = {}
-    for idx, (model_name, model_obj) in enumerate(models.items()):
-        with pred_cols[idx]:
-            proba = model_obj.predict_proba(X_scaled)[0, 1]
-            pit_probabilities[model_name] = proba
+    if proba < 0.4:
+        color, status = "#00AA00", "STAY OUT"
+    elif proba < threshold:
+        color, status = "#FFAA00", "MONITOR"
+    else:
+        color, status = F1_RED, "PIT NOW"
 
-            if proba < 0.4:
-                color = "#00AA00"
-                status = "STAY OUT"
-            elif proba < 0.6:
-                color = "#FFAA00"
-                status = "CAUTION"
-            else:
-                color = F1_RED
-                status = "PIT NOW"
-
-            st.markdown(f"""
-            <div style="background: {color}; padding: 20px; border-radius: 0; color: white; text-align: center;">
-                <div style="font-size: 12px; font-weight: bold; letter-spacing: 1px;">{model_name}</div>
-                <div class="pit-gauge">{proba:.0%}</div>
-                <div style="font-size: 12px; margin-top: 10px; letter-spacing: 1px;">{status}</div>
+    c1, c2 = st.columns([1, 2])
+    with c1:
+        st.markdown(f"""
+        <div style="background:{color}; padding:30px; text-align:center; color:white;">
+            <div style="font-size:48px; font-weight:900;">{proba:.0%}</div>
+            <div style="font-size:14px; letter-spacing:2px; margin-top:8px;">{status}</div>
+        </div>""", unsafe_allow_html=True)
+    with c2:
+        recommendation = "🔴 PIT NOW" if proba >= threshold else "🟢 STAY OUT"
+        bg_color = F1_RED if proba >= threshold else "#00AA00"
+        st.markdown(f"""
+        <div style="background:{bg_color}22; border-left:6px solid {bg_color}; padding:20px;">
+            <div style="font-size:26px; font-weight:900; letter-spacing:1px;">{recommendation}</div>
+            <div style="font-size:15px; margin-top:10px;">Pit Probability: <strong>{proba:.1%}</strong></div>
+            <div style="font-size:13px; color:#aaa; margin-top:6px;">
+                Threshold τ={threshold:.2f} | Margin: {abs(proba-threshold):.1%}
             </div>
-            """, unsafe_allow_html=True)
-
-    st.markdown("---")
-    st.markdown(f'<div class="f1-header">⚡ {selected_model}</div>', unsafe_allow_html=True)
-
-    selected_proba = pit_probabilities[selected_model]
-    threshold = 0.6
-    recommendation = "🔴 PIT NOW" if selected_proba >= threshold else "🟢 STAY OUT"
-    bg_color = F1_RED if selected_proba >= threshold else "#00AA00"
-
-    st.markdown(f"""
-    <div style="background: {bg_color}22; border-left: 6px solid {bg_color}; padding: 20px; border-radius: 0;">
-        <div style="font-size: 28px; font-weight: 900; margin-bottom: 15px; letter-spacing: 1px;">{recommendation}</div>
-        <div style="font-size: 16px;">Pit Probability: <strong>{selected_proba:.1%}</strong></div>
-        <div style="font-size: 13px; color: #aaa; margin-top: 10px;">
-            Decision Threshold: {threshold:.0%} | Margin: {abs(selected_proba - threshold):.1%}
-        </div>
-    </div>
-    """, unsafe_allow_html=True)
+        </div>""", unsafe_allow_html=True)
 
 # ============================================================================
 # TAB 2: THRESHOLD EXPLORER
@@ -291,8 +267,8 @@ def tab_threshold_explorer():
     st.markdown("Find optimal decision threshold for pit predictions.")
 
     # Compute threshold sweep
-    rf_model = models['Random Forest']
-    y_proba = rf_model.predict_proba(X_test_scaled)[:, 1]
+    xgb_model = models['XGBoost']
+    y_proba = xgb_model.predict_proba(X_test_scaled)[:, 1]
 
     thresholds = np.arange(0.1, 1.0, 0.05)
     metrics_list = []
@@ -397,62 +373,60 @@ def tab_model_diagnostics():
     st.markdown('<div class="f1-header">🔬 Model Diagnostics</div>', unsafe_allow_html=True)
     st.markdown("Comprehensive statistical analysis of model performance.")
 
-    # Create diagnostics dataframe
-    diag_data = []
-    for model_name, metric_dict in metrics.items():
-        base_metrics = results_df[results_df['Model'] == model_name].iloc[0]
-        diag_data.append({
-            'Model': model_name,
-            'Accuracy': f"{base_metrics['Accuracy']:.4f}",
-            'Precision': f"{base_metrics['Precision']:.4f}",
-            'Recall': f"{base_metrics['Recall']:.4f}",
-            'F1-Score': f"{base_metrics['F1']:.4f}",
-            'ROC-AUC': f"{base_metrics['ROC-AUC']:.4f}",
-            'PR-AUC': f"{base_metrics['PR-AUC']:.4f}",
-            'MAE': f"{metric_dict['MAE']:.4f}",
-            'RMSE': f"{metric_dict['RMSE']:.4f}",
-            'R²': f"{metric_dict['R2']:.4f}"
-        })
-
+    # Create diagnostics dataframe from saved metrics
+    sm = saved_metrics
+    diag_data = [{
+        'Model':     'XGBoost (selected)',
+        'ROC-AUC':   f"{sm['roc_auc']:.4f}",
+        'F1':        f"{sm['f1']:.4f}",
+        'Recall':    f"{sm['recall']:.4f}",
+        'Precision': f"{sm['precision']:.4f}",
+        'Threshold': f"{sm['threshold']:.2f}",
+        'MAE':       f"{metrics['XGBoost']['MAE']:.4f}",
+        'RMSE':      f"{metrics['XGBoost']['RMSE']:.4f}",
+        'R²':        f"{metrics['XGBoost']['R2']:.4f}",
+        'Train laps': f"{sm['train_size']:,}",
+        'Test laps':  f"{sm['test_size']:,}",
+    }]
     diag_df = pd.DataFrame(diag_data)
 
-    st.markdown("**Classification & Regression Metrics**")
+    st.markdown("**XGBoost — 2024 Held-Out Evaluation**")
     st.dataframe(diag_df, use_container_width=True, hide_index=True)
 
     # Bias-Variance Analysis
     st.markdown("---")
-    st.markdown('<div class="f1-header">⚖️ Bias-Variance Tradeoff</div>', unsafe_allow_html=True)
+    st.markdown('<div class="f1-header">⚖️ Bias-Variance Analysis</div>', unsafe_allow_html=True)
 
     col1, col2, col3 = st.columns(3)
 
     with col1:
         st.markdown("""
-        **Logistic Regression**
-        - ✓ Low variance (simple model)
-        - ✗ High bias (underfitting)
-        - F1: 0.2652
+        **Logistic Regression** (baseline)
+        - ✓ Low variance — stable
+        - ✗ High bias — can't model tyre curves
+        - ROC-AUC ≈ 0.705
 
-        *Implication*: Misses pit signals
+        *Role*: Linear baseline for significance testing
         """)
 
     with col2:
         st.markdown("""
-        **Random Forest**
-        - ✓ Balanced bias-variance
-        - ✓ Best F1-score (0.4320)
-        - MAE: 0.2174
+        **Random Forest** (runner-up)
+        - ✓ Good calibration
+        - ✓ ROC-AUC ≈ 0.860
+        - Slower inference than XGBoost
 
-        *Implication*: Production choice
+        *Role*: Ensemble comparison
         """)
 
     with col3:
         st.markdown("""
-        **XGBoost**
-        - ✓ Excellent ROC-AUC
-        - ✓ Best PR-AUC (0.2716)
-        - RMSE: 0.3864
+        **XGBoost** ✅ selected
+        - ✓ Best probability calibration
+        - ✓ ROC-AUC 0.841 (real data)
+        - ✓ Configurable threshold τ=0.60
 
-        *Implication*: Probability calibration
+        *Role*: Production model
         """)
 
     # Residual analysis
@@ -501,45 +475,49 @@ def tab_feature_analysis():
         'Importance': importance
     }).sort_values('Importance', ascending=False)
 
-    top_15 = feature_df.head(15)
+    # Normalize to % of total gain
+    feature_df['Gain %'] = (feature_df['Importance'] / feature_df['Importance'].sum() * 100).round(1)
+    top_3_share = feature_df.head(3)['Gain %'].sum()
 
     fig = go.Figure(
         data=[go.Bar(
-            x=top_15['Importance'],
-            y=top_15['Feature'],
+            x=feature_df['Gain %'],
+            y=feature_df['Feature'],
             orientation='h',
+            text=[f"{v:.1f}%" for v in feature_df['Gain %']],
+            textposition='outside',
             marker=dict(
-                color=top_15['Importance'],
+                color=feature_df['Gain %'],
                 colorscale=[[0, '#0f0f14'], [1, F1_RED]],
-                showscale=True
+                showscale=False,
             )
         )]
     )
 
     fig.update_layout(
-        title="Top 15 Feature Importance (XGBoost)",
-        xaxis_title="Importance Score",
-        height=600,
+        title=f"XGBoost Feature Importance (top 3 = {top_3_share:.1f}% of model gain)",
+        xaxis_title="% of Model Gain",
+        height=350,
         template='plotly_dark',
         plot_bgcolor='#1a1a24',
-        paper_bgcolor='#0f0f14'
+        paper_bgcolor='#0f0f14',
+        margin=dict(l=160),
     )
 
     st.plotly_chart(fig, use_container_width=True)
 
     # Detailed insights
     st.markdown("---")
-    st.markdown('<div class="f1-header">💡 Key Features</div>', unsafe_allow_html=True)
+    st.markdown('<div class="f1-header">💡 Feature Definitions</div>', unsafe_allow_html=True)
 
-    top_3_cols = st.columns(3)
-
-    for idx, (col, (feat_idx, row)) in enumerate(zip(top_3_cols, list(top_15.head(3).iterrows()))):
+    cols = st.columns(len(FEATURE_COLS))
+    for idx, (col, (_, row)) in enumerate(zip(cols, feature_df.iterrows())):
         with col:
             st.markdown(f"""
-            ### {row['Feature']}
-            **Importance**: {row['Importance']:.4f}
+            **#{idx+1} {row['Feature']}**
+            Gain: {row['Gain %']:.1f}%
 
-            Rank: **#{idx + 1}** of 14 features
+            {FEATURE_DESCRIPTIONS.get(row['Feature'], '')}
             """)
 
 # ============================================================================
@@ -556,26 +534,25 @@ def tab_database():
         st.markdown("""
         ### Data Pipeline
 
-        **Step 1: Load Raw Data**
-        - Training: 2018-2023 (34,800 raw laps)
-        - Test: 2024 (3,600 raw laps)
+        **Step 1: Load FastF1 Data**
+        - Training: 2018-2023 (14 races)
+        - Test: 2024 season (held-out, 2 races)
 
-        **Step 2: Clean Data**
-        - Remove pit outcome laps
-        - Remove SC/VSC periods
-        - Remove standing starts
-        - Remove wet weather
-        - Retention: 78%
+        **Step 2: Feature Engineering (4 features)**
+        - `DegradationRate`: OLS slope per stint
+        - `StintAgeSquared`: tyre_life²
+        - `RaceProgress`: lap / max_lap
+        - `PaceDelta`: driver lap time vs. 5-lap rolling median
 
-        **Step 3: Feature Engineering**
-        - 14 features (tire, race, strategy, environment)
-        - StandardScaler normalization
-        - Binary target: pit_next_5_laps
+        **Step 3: Scale + Train**
+        - StandardScaler (fit on train only)
+        - Binary target: pit within next 5 laps
+        - 5-fold stratified CV for model selection
 
-        **Step 4: Train/Test Split**
-        - Training: 27,188 laps (2018-2023)
-        - Test: 2,828 laps (2024 held-out)
-        - Seed: Fixed for reproducibility
+        **Step 4: Evaluate**
+        - Training: 16,867 laps (2018-2023)
+        - Test: 2,801 laps (2024 held-out)
+        - XGBoost selected: ROC-AUC 0.841, F1 0.490
         """)
 
     with col2:
@@ -688,9 +665,9 @@ with tab5:
 st.markdown(f"""
 <div style="text-align: center; padding: 20px; border-top: 1px solid {F1_RED}; margin-top: 40px;">
     <p style="color: {F1_SILVER}; font-size: 12px;">
-        ✓ Models: Logistic Regression, Random Forest, XGBoost |
-        ✓ Test Set: 2024 held-out (2,828 laps) |
-        ✓ Metrics: F1={results_df.iloc[1]['F1']:.4f}, ROC-AUC={results_df.iloc[1]['ROC-AUC']:.4f}, PR-AUC={results_df.iloc[1]['PR-AUC']:.4f}
+        ✓ Model: XGBoost | 4 engineered features | 5-fold stratified CV |
+        ✓ Test: 2024 held-out ({saved_metrics['test_size']:,} laps) |
+        ✓ ROC-AUC={saved_metrics['roc_auc']:.3f} | F1={saved_metrics['f1']:.3f} | Recall={saved_metrics['recall']:.3f} | τ={saved_metrics['threshold']:.2f}
     </p>
 </div>
 """, unsafe_allow_html=True)
