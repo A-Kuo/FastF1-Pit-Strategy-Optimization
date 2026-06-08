@@ -59,11 +59,20 @@ htmlcov/
 *secret*
 config.ini
 
-# Large files
+# Large files (model artifacts tracked via models/ exception below)
 *.pkl
 *.csv
 *.parquet
 *.h5
+
+# Track trained model artifacts
+!models/*.pkl
+!models/*.npy
+
+# Docker/testing artifacts
+docker-compose.log
+docker-compose.pid
+*.pid
 
 # Cursor IDE
 .cursor/
@@ -75,12 +84,12 @@ agent-transcripts/
 terminals/
 mcps/
 .codex/
-AGENTS.md
 .claude/
 claude_files/
+AGENT3.md
+PROMPTS.md
 
 # Local logs and output
 *.log
 output/
-results/
 figures/

@@ -8,7 +8,7 @@ Data is production-ready for machine learning: zero missing values, balanced tar
 
 ---
 
-## 1. Missing Data Handling
+## TASK 1: Handle Missing Data Strategically
 
 ### 1A. IN/OUT Pit Laps with Missing LapTime
 
@@ -82,7 +82,7 @@ clean_data = raw_data[
 
 ---
 
-## 2. Feature Engineering
+## TASK 2: Engineer Core Features
 
 ### Feature Engineering Overview
 
@@ -467,7 +467,7 @@ Purpose: Allows retraining on caution data without recoding
 
 ---
 
-## 3. Target Variable Construction
+## TASK 3: Create Binary Classification Target
 
 ### Target Definition: pit_next_5_laps
 
@@ -519,7 +519,7 @@ Ratio: 1.72:1 (slightly imbalanced, but acceptable)
 
 ---
 
-## 4. Data Inclusion Criteria
+## TASK 4: Specify Which Laps to Include/Exclude
 
 ### Final Dataset Criteria
 
@@ -641,6 +641,8 @@ Final retention: 2,874 laps (78.9% of cleaned data, 74.5% of raw)
 
 ---
 
-**Status: Ready for modeling.**
+**Status: ✓ READY TO MODEL**
 
 All data cleaning and feature engineering complete. Zero missing values, balanced target, quantitatively justified features.
+
+https://claude.ai/code/session_01XrGoR8dehnd6bsYfA3fynJ

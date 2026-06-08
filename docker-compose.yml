@@ -1,0 +1,59 @@
+version: '3.8'
+
+services:
+  # Streamlit Dashboard
+  streamlit:
+    build: .
+    container_name: f1-pit-strategy-streamlit
+    ports:
+      - "8501:8501"  # Streamlit UI
+      - "8000:8000"  # FastAPI (future)
+    environment:
+      - ENVIRONMENT=development
+      - DB_TYPE=postgresql
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_HOST=postgres
+      - DB_PORT=5432
+      - DB_NAME=f1_pit_db
+      - STREAMLIT_LOGGER_LEVEL=info
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./models:/app/models
+      - ./data:/app/data
+      - ./results:/app/results
+      - ./.cache:/app/.cache
+    networks:
+      - f1-network
+    command: streamlit run streamlit_app_enhanced.py
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: f1-pit-strategy-postgres
+    environment:
+      - POSTGRES_USER=postgres
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=f1_pit_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - f1-network
+
+networks:
+  f1-network:
+    driver: bridge
+
+volumes:
+  postgres_data:
+    driver: local
