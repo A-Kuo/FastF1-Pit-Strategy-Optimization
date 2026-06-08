@@ -11,6 +11,7 @@ Features:
   4. PaceDelta         - driver lap time minus rolling median (driver-relative)
 """
 
+import os
 import numpy as np
 import pandas as pd
 import pickle
@@ -144,26 +145,38 @@ TEST_RACES = [
     (2024, 1, 70), (2024, 2, 70),
 ]
 
-print("Building training dataset (2018-2023)...")
-train_df = build_dataset(TRAIN_RACES)
-print(f"  → {len(train_df):,} laps | pit rate {train_df['pit_next_5'].mean()*100:.1f}%")
+_db_artifacts = all(
+    os.path.exists(f"models/{f}")
+    for f in ["X_train_scaled.npy", "X_test_scaled.npy", "y_train.npy", "y_test.npy", "scaler.pkl"]
+)
 
-print("Building test dataset (2024 held-out)...")
-test_df = build_dataset(TEST_RACES)
-print(f"  → {len(test_df):,} laps | pit rate {test_df['pit_next_5'].mean()*100:.1f}%")
+if _db_artifacts:
+    print("Loading pre-built artifacts from feature_engineering.py (PostgreSQL source)...")
+    X_train_s = np.load("models/X_train_scaled.npy")
+    X_test_s  = np.load("models/X_test_scaled.npy")
+    y_train   = np.load("models/y_train.npy")
+    y_test    = np.load("models/y_test.npy")
+    with open("models/scaler.pkl", "rb") as f:
+        scaler = pickle.load(f)
+    print(f"  → Train: {X_train_s.shape[0]:,} laps | Pit rate: {y_train.mean()*100:.1f}%")
+    print(f"  → Test:  {X_test_s.shape[0]:,} laps  | Pit rate: {y_test.mean()*100:.1f}%")
+else:
+    print("No DB artifacts found — generating synthetic data...")
+    train_df = build_dataset(TRAIN_RACES)
+    print(f"  → {len(train_df):,} laps | pit rate {train_df['pit_next_5'].mean()*100:.1f}%")
 
-# ─────────────────────────────────────────────────────────────
-# 2. SCALE
-# ─────────────────────────────────────────────────────────────
+    print("Building test dataset (2024 held-out)...")
+    test_df = build_dataset(TEST_RACES)
+    print(f"  → {len(test_df):,} laps | pit rate {test_df['pit_next_5'].mean()*100:.1f}%")
 
-X_train = train_df[FEATURE_COLS].values
-y_train = train_df["pit_next_5"].values.astype(int)
-X_test  = test_df[FEATURE_COLS].values
-y_test  = test_df["pit_next_5"].values.astype(int)
+    X_train = train_df[FEATURE_COLS].values
+    y_train = train_df["pit_next_5"].values.astype(int)
+    X_test  = test_df[FEATURE_COLS].values
+    y_test  = test_df["pit_next_5"].values.astype(int)
 
-scaler = StandardScaler()
-X_train_s = scaler.fit_transform(X_train)
-X_test_s  = scaler.transform(X_test)
+    scaler = StandardScaler()
+    X_train_s = scaler.fit_transform(X_train)
+    X_test_s  = scaler.transform(X_test)
 
 # ─────────────────────────────────────────────────────────────
 # 3. 5-FOLD CV BENCHMARK
@@ -274,8 +287,8 @@ metrics = {
     "recall":    recall,
     "precision": precision,
     "threshold": THRESHOLD,
-    "train_size": len(train_df),
-    "test_size":  len(test_df),
+    "train_size": int(X_train_s.shape[0]),
+    "test_size":  int(X_test_s.shape[0]),
     "feature_cols": FEATURE_COLS,
     "cv_scores":  cv_scores,
     "feature_importance": dict(zip(FEATURE_COLS, (importance / total).tolist())),

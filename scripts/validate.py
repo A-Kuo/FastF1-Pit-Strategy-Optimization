@@ -11,7 +11,12 @@ Validates ingested FastF1 data:
 """
 
 import os
+import sys
 import logging
+
+# Allow running as `python scripts/validate.py` from project root
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+
 from sqlalchemy import create_engine, func, and_
 from sqlalchemy.orm import Session
 
@@ -19,7 +24,7 @@ logging.basicConfig(level=logging.INFO, format='%(levelname)8s | %(message)s')
 logger = logging.getLogger(__name__)
 
 # Import schema
-from scripts.ingest import RaceORM, LapORM, Base
+from scripts.ingest import RaceORM, LapORM, Base  # noqa: E402
 
 
 def validate_data():
