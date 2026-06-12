@@ -4,9 +4,14 @@
 
 set -e
 
+# Set DATABASE_URL from environment or use default (for local dev)
+export DATABASE_URL="${DATABASE_URL:-postgresql://postgres:postgres@localhost:5432/f1_pit_db}"
+
 echo "=========================================="
 echo "FastF1 Data Pipeline — Real Data"
 echo "=========================================="
+echo "DATABASE_URL: $DATABASE_URL"
+echo ""
 
 # 1. Start PostgreSQL (use existing or docker)
 echo ""
@@ -21,7 +26,7 @@ echo ""
 echo "[2/5] Ingesting 2018–2023 (training, ~45k laps)..."
 for year in 2018 2019 2020 2021 2022 2023; do
   echo "  $year..."
-  DATABASE_URL="postgresql://postgres:postgres@localhost:5432/f1_pit_db" python3 scripts/ingest.py --years $year --races 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22
+  python3 scripts/ingest.py --years $year --races 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22
   sleep 2  # Rate limit to avoid API throttle
 done
 echo "✓ Training data ingested"
@@ -29,19 +34,19 @@ echo "✓ Training data ingested"
 # 3. Ingest 2024 test data
 echo ""
 echo "[3/5] Ingesting 2024 (held-out test, ~2.8k laps)..."
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/f1_pit_db" python3 scripts/ingest.py --years 2024 --races 1,2,3,4,5
+python3 scripts/ingest.py --years 2024 --races 1,2,3,4,5
 echo "✓ Test data ingested"
 
 # 4. Validate
 echo ""
 echo "[4/5] Validating data quality..."
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/f1_pit_db" PYTHONPATH=. python3 scripts/validate.py
+PYTHONPATH=. python3 scripts/validate.py
 echo "✓ Validation passed"
 
 # 5. Feature engineering + model training
 echo ""
 echo "[5/5] Engineering features and training model..."
-DATABASE_URL="postgresql://postgres:postgres@localhost:5432/f1_pit_db" python3 feature_engineering.py
+python3 feature_engineering.py
 python3 pipeline.py
 echo "✓ Pipeline complete"
 

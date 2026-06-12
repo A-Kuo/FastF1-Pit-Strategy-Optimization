@@ -57,12 +57,12 @@ class TestConfigLoading:
         assert "***" in repr_str
         assert settings.db_password not in repr_str or settings.db_password == ""
 
-    def test_valid_db_types(self):
+    def test_valid_db_types(self, monkeypatch):
         """Should accept valid database types."""
         valid_types = ["postgresql", "mysql", "sqlserver"]
 
         for db_type in valid_types:
-            os.environ["DB_TYPE"] = db_type
+            monkeypatch.setenv("DB_TYPE", db_type)
             settings = Settings()
             assert settings.db_type == db_type
 

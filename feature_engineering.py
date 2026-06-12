@@ -43,7 +43,7 @@ def load_laps_from_db(db_url: str, years: list) -> pd.DataFrame:
     engine = create_engine(db_url)
 
     with Session(engine) as session:
-        from sqlalchemy import select, literal_column
+        from sqlalchemy import select
         from scripts.ingest import RaceORM as R, LapORM as L
 
         stmt = (
@@ -82,7 +82,7 @@ def engineer_features(laps: pd.DataFrame) -> pd.DataFrame:
 
     logger.info("Computing DegradationRate...")
     deg_rates = laps.groupby(['session_key', 'driver_number', 'stint_number']).apply(
-        compute_degradation, include_groups=False
+        compute_degradation
     ).reset_index(name='DegradationRate')
 
     laps = laps.merge(

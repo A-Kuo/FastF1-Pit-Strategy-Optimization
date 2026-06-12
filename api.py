@@ -19,7 +19,6 @@ Endpoints:
   POST /batch-predict - Batch predictions
 """
 
-import os
 import pickle
 import numpy as np
 from datetime import datetime
@@ -27,7 +26,6 @@ from typing import List, Dict, Any
 import logging
 
 from fastapi import FastAPI, HTTPException, status
-from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 # Setup logging
@@ -78,8 +76,11 @@ async def load_models():
         logger.info("Ready to serve predictions")
 
     except FileNotFoundError as e:
-        logger.error(f"Model files not found: {e}")
-        raise
+        logger.warning(f"Model artifacts not found during startup: {e}")
+        logger.warning(
+            "Model artifacts are missing; readiness and prediction endpoints will "
+            "return 503 until models are successfully loaded."
+        )
 
 
 # ─────────────────────────────────────────────────────────────
@@ -206,7 +207,7 @@ async def predict(request: PredictionRequest) -> PredictionResponse:
     - `pit_decision`: "PIT_NOW" (prob ≥ τ), "MONITOR", or "STAY_OUT"
     - `decision_threshold`: Configured threshold (0.60)
     """
-    if MODEL is None or SCALER is None:
+    if MODEL is None or SCALER is None or METRICS is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Model not loaded"
@@ -228,7 +229,7 @@ async def predict(request: PredictionRequest) -> PredictionResponse:
         pit_probability = float(MODEL.predict_proba(X_scaled)[0, 1])
 
         # Decision
-        threshold = METRICS["threshold"]
+        threshold = METRICS.get("threshold", 0.60)
         if pit_probability >= threshold:
             decision = "PIT_NOW"
         elif pit_probability >= threshold - 0.1:
@@ -268,17 +269,20 @@ async def batch_predict(request: BatchPredictionRequest) -> BatchPredictionRespo
     - `pit_probabilities`: List of probabilities [0, 1]
     - `pit_decisions`: List of decisions ("PIT_NOW", "MONITOR", "STAY_OUT")
     """
-    if MODEL is None or SCALER is None:
+    if MODEL is None or SCALER is None or METRICS is None:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Model not loaded"
         )
 
     try:
+        if not request.features:
+            raise ValueError("features cannot be empty")
+
         X = np.array(request.features, dtype=np.float32)
 
-        if X.shape[1] != 4:
-            raise ValueError(f"Expected 4 features, got {X.shape[1]}")
+        if X.ndim != 2 or X.shape[1] != 4:
+            raise ValueError(f"Expected 2D array with 4 features, got shape {X.shape}")
 
         # Scale
         X_scaled = SCALER.transform(X)

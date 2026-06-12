@@ -266,7 +266,6 @@ for feat, imp in sorted(zip(FEATURE_COLS, importance), key=lambda x: -x[1]):
 # 7. SAVE ARTIFACTS
 # ─────────────────────────────────────────────────────────────
 
-import os
 os.makedirs("models", exist_ok=True)
 os.makedirs("results", exist_ok=True)
 

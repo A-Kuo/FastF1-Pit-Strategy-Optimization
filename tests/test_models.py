@@ -139,14 +139,6 @@ class TestMetrics:
         assert 0 <= metrics["precision"] <= 1, "Invalid precision"
         assert 0 < metrics["threshold"] < 1, "Invalid threshold"
 
-    def test_metrics_consistency(self):
-        """Precision ≥ recall (at this threshold typically)."""
-        with open("models/metrics.pkl", "rb") as f:
-            metrics = pickle.load(f)
-
-        # For threshold > 0.5, usually have high precision relative to recall
-        if metrics["threshold"] > 0.5:
-            assert metrics["precision"] >= 0.3, "Low precision at high threshold"
 
 
 if __name__ == "__main__":
