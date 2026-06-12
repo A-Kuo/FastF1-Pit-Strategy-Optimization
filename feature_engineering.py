@@ -16,6 +16,7 @@ Outputs:
 """
 
 import os
+import sys
 import numpy as np
 import pandas as pd
 import pickle
@@ -25,6 +26,9 @@ from sqlalchemy.orm import Session
 from sklearn.preprocessing import StandardScaler
 from sklearn.linear_model import LinearRegression
 
+# Allow running as `python feature_engineering.py` from project root
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 logging.basicConfig(level=logging.INFO, format='%(levelname)8s | %(message)s')
 logger = logging.getLogger(__name__)
 
@@ -33,16 +37,21 @@ logger = logging.getLogger(__name__)
 # ─────────────────────────────────────────────────────────────
 
 def load_laps_from_db(db_url: str, years: list) -> pd.DataFrame:
-    """Load lap data from PostgreSQL for specified years."""
+    """Load lap data from PostgreSQL for specified years, including year column."""
     from scripts.ingest import RaceORM, LapORM
 
     engine = create_engine(db_url)
 
     with Session(engine) as session:
-        query = session.query(LapORM).join(RaceORM).filter(
-            RaceORM.year.in_(years)
+        from sqlalchemy import select
+        from scripts.ingest import RaceORM as R, LapORM as L
+
+        stmt = (
+            select(L, R.year.label('year'))
+            .join(R, L.race_id == R.race_id)
+            .where(R.year.in_(years))
         )
-        laps = pd.read_sql(query.statement, engine)
+        laps = pd.read_sql(stmt, engine)
 
     if laps.empty:
         raise ValueError(f"No data found for years {years} in database")
@@ -119,22 +128,6 @@ def engineer_features(laps: pd.DataFrame) -> pd.DataFrame:
 
 def prepare_datasets(laps: pd.DataFrame, train_years: list, test_years: list):
     """Split into train/test and scale."""
-    from scripts.ingest import RaceORM
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import Session
-
-    db_url = os.getenv('DATABASE_URL',
-                      'postgresql://postgres:postgres@localhost:5432/f1_pit_db')
-    engine = create_engine(db_url)
-
-    with Session(engine) as session:
-        train_years_in_db = session.query(RaceORM.year).distinct().filter(
-            RaceORM.year.in_(train_years)
-        ).all()
-        test_years_in_db = session.query(RaceORM.year).distinct().filter(
-            RaceORM.year.in_(test_years)
-        ).all()
-
     train_laps = laps[laps['year'].isin(train_years)]
     test_laps = laps[laps['year'].isin(test_years)]
 
@@ -178,18 +171,7 @@ def main():
         all_laps = load_laps_from_db(db_url, [2018, 2019, 2020, 2021, 2022, 2023, 2024])
     except Exception as e:
         logger.error(f"Failed to load from DB: {e}")
-        logger.info("Falling back to synthetic data...")
         raise
-
-    # Merge year info
-    from scripts.ingest import RaceORM
-    from sqlalchemy import create_engine
-    from sqlalchemy.orm import Session
-
-    engine = create_engine(db_url)
-    with Session(engine) as session:
-        races = pd.read_sql(session.query(RaceORM).statement, engine)
-    all_laps = all_laps.merge(races[['race_id', 'year']], on='race_id', how='left')
 
     # Engineer
     logger.info("\n" + "="*60)

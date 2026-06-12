@@ -32,6 +32,10 @@ pydantic-settings==2.0.3
 python-dotenv==1.0.0
 python-json-logger==2.0.7
 
+# Web Framework (REST API)
+fastapi==0.104.1
+uvicorn==0.24.0
+
 # ============================================================================
 # DEVELOPMENT DEPENDENCIES (Optional, for local development)
 # ============================================================================
@@ -42,4 +46,5 @@ black==23.7.0
 flake8==6.1.0
 mypy==1.5.0
 pre-commit==3.3.3
+httpx==0.25.0  # For FastAPI test client
 
