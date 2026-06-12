@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+    branches: [main, develop, 'claude/**']
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  test:
+    name: Test & Lint
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: f1_pit_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/f1_pit_db
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Verify model artifacts (regenerate if missing)
+        run: |
+          if [ ! -f models/xgboost_model.pkl ]; then
+            echo "Model artifacts missing — generating from synthetic data..."
+            python pipeline.py
+          else
+            echo "Model artifacts present."
+          fi
+
+      - name: Lint with flake8
+        run: |
+          # Fail on syntax errors / undefined names
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          # Warn on style (non-blocking)
+          flake8 . --count --max-line-length=120 --extend-ignore=E203,W503,E501,F401,F841 --statistics --exit-zero
+
+      - name: Check formatting with black
+        run: black --check --diff . || echo "::warning::Code not black-formatted (non-blocking)"
+        continue-on-error: true
+
+      - name: Run tests
+        run: pytest tests/ -v --tb=short
+
+      - name: Validate API imports
+        run: python -c "from api import app; print('✓ API imports successfully')"
